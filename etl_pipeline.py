@@ -261,26 +261,48 @@ def load_niti_mpi(path: str) -> pd.DataFrame:
     # Validate required MPI columns
     mpi_score_col = None
     headcount_col = None
+    mpi_hcr_col = None  # Some datasets have MPI HCR as a single column
     
     for col in df.columns:
         col_lower = col.lower()
-        if mpi_score_col is None and ('mpi_score' in col_lower or 'mpi' in col_lower):
+        if mpi_score_col is None and ('mpi_score' in col_lower and 'hcr' not in col_lower):
             mpi_score_col = col
         if headcount_col is None and ('headcount' in col_lower or 'head_count' in col_lower):
             headcount_col = col
+        if mpi_hcr_col is None and ('mpi' in col_lower and 'hcr' in col_lower):
+            mpi_hcr_col = col
     
-    if mpi_score_col is None:
-        raise ValueError("Could not find MPI_Score column in NITI MPI data")
-    if headcount_col is None:
-        raise ValueError("Could not find Headcount_Ratio column in NITI MPI data")
-    
-    # Create standardized result DataFrame
-    result_df = pd.DataFrame({
-        "State": df[state_col].astype(str),
-        "District_2021": df[district_col].astype(str),
-        "MPI_Score": pd.to_numeric(df[mpi_score_col], errors='coerce'),
-        "Headcount_Ratio": pd.to_numeric(df[headcount_col], errors='coerce'),
-    })
+    # Handle different data formats
+    # Format 1: Separate MPI_Score and Headcount_Ratio columns
+    # Format 2: Single MPI_HCR column (Headcount Ratio)
+    if mpi_hcr_col:
+        # Use MPI_HCR as Headcount_Ratio, set MPI_Score to None
+        result_df = pd.DataFrame({
+            "State": df[state_col].astype(str),
+            "District_2021": df[district_col].astype(str),
+            "MPI_Score": None,  # Not available in this format
+            "Headcount_Ratio": pd.to_numeric(df[mpi_hcr_col], errors='coerce'),
+        })
+        warnings.warn(f"Using MPI_HCR column as Headcount_Ratio. MPI_Score not available.")
+    elif mpi_score_col and headcount_col:
+        # Both columns available
+        result_df = pd.DataFrame({
+            "State": df[state_col].astype(str),
+            "District_2021": df[district_col].astype(str),
+            "MPI_Score": pd.to_numeric(df[mpi_score_col], errors='coerce'),
+            "Headcount_Ratio": pd.to_numeric(df[headcount_col], errors='coerce'),
+        })
+    elif headcount_col:
+        # Only Headcount_Ratio available
+        result_df = pd.DataFrame({
+            "State": df[state_col].astype(str),
+            "District_2021": df[district_col].astype(str),
+            "MPI_Score": None,
+            "Headcount_Ratio": pd.to_numeric(df[headcount_col], errors='coerce'),
+        })
+        warnings.warn("Only Headcount_Ratio found. MPI_Score not available.")
+    else:
+        raise ValueError("Could not find MPI_Score, Headcount_Ratio, or MPI_HCR column in NITI MPI data")
     
     # Remove rows with missing essential data
     result_df = result_df.dropna(subset=["State", "District_2021"])

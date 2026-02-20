@@ -1,5 +1,7 @@
 # Python
 __pycache__/
+*.dist-info/
+xlrd/
 *.py[cod]
 *$py.class
 *.so
@@ -67,6 +69,12 @@ Thumbs.db
 .env
 .env.local
 
+# API Keys (never commit!)
+apikey.py
+
 # Cache
 .cache/
 *.cache
+
+# data
+dgcis_stateoforigin1771519863052/
