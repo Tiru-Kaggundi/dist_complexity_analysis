@@ -155,6 +155,19 @@ def plot_eci_std_vs_viirs(
                  "VIIRS Mean Luminosity", out_path, title)
 
 
+def plot_eci_vs_log_viirs(
+    df: pd.DataFrame,
+    out_path: str = "eci_vs_log_viirs.png",
+    title: str = "District-level ECI vs log(VIIRS Mean Luminosity)",
+) -> None:
+    """Scatter ECI vs log(VIIRS_Mean) with regression line, equation, and R²."""
+    df_plot = df.dropna(subset=["ECI", "VIIRS_Mean"]).copy()
+    df_plot = df_plot[df_plot["VIIRS_Mean"] > 0]  # log defined only for positive
+    df_plot["log_VIIRS_Mean"] = np.log(df_plot["VIIRS_Mean"])
+    _plot_x_vs_y(df_plot, "ECI", "log_VIIRS_Mean", "Economic Complexity Index (ECI)",
+                 "log(VIIRS Mean Luminosity)", out_path, title)
+
+
 def _plot_x_vs_y(
     df: pd.DataFrame,
     x_col: str,
@@ -214,6 +227,7 @@ def main():
     print(f"\nDistricts with both ECI and VIIRS: {len(df_viirs)}")
     plot_eci_vs_viirs(df_viirs, out_path=str(base / "eci_vs_viirs.png"))
     plot_eci_std_vs_viirs(df_viirs, out_path=str(base / "eci_std_vs_viirs.png"))
+    plot_eci_vs_log_viirs(df_viirs, out_path=str(base / "eci_vs_log_viirs.png"))
 
 
 if __name__ == "__main__":

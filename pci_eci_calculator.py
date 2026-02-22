@@ -116,6 +116,10 @@ def load_oec_pci_data(path: Optional[str] = None,
     if cache_file.exists() and not use_api:
         print(f"Loading PCI data from cache: {cache_file}")
         pci_df = pd.read_csv(cache_file)
+        # Clean HS4 for merge (cache may have been read as int)
+        pci_df['HS4'] = pci_df['HS4'].astype(str).str.strip().str.zfill(4)
+        pci_df['PCI'] = pd.to_numeric(pci_df['PCI'], errors='coerce')
+        pci_df = pci_df.dropna(subset=['PCI'])
         print(f"  Loaded {len(pci_df)} products")
         return pci_df
     
@@ -254,7 +258,11 @@ def add_pci_column(base_df: pd.DataFrame, pci_df: pd.DataFrame) -> pd.DataFrame:
         Base dataset with PCI column added
     """
     print("\nAdding PCI column...")
-    
+    # Coerce HS codes to 4-digit string for merge
+    base_df = base_df.copy()
+    base_df['HS Code'] = base_df['HS Code'].astype(str).str.strip().str.zfill(4)
+    pci_df = pci_df.copy()
+    pci_df['HS4'] = pci_df['HS4'].astype(str).str.strip().str.zfill(4)
     # Merge PCI values
     result_df = base_df.merge(
         pci_df[['HS4', 'PCI']],

@@ -731,7 +731,8 @@ def process_and_add_luminosity(
 
 
 if __name__ == "__main__":
-    # Example usage
+    # Recommended (VIIRS has IDs only; geo keys map to district names for matching):
+    #   python luminosity_merger.py dists_2025_full.csv dists_2025_full.csv data/shrug_viirs/viirs_annual_pc11dist.csv --geo-keys data/shrug_geo/shrid_pc11dist_key.csv
     import sys
     import argparse
     
