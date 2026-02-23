@@ -13,6 +13,11 @@ try:
     from rapidfuzz import fuzz, process
 except ImportError:
     process = None
+try:
+    from adjustText import adjust_text
+    HAS_ADJUST_TEXT = True
+except ImportError:
+    HAS_ADJUST_TEXT = False
 
 # States excluded as outliers for ECI vs GSDP "_removed" plots
 EXCLUDED_STATES_GSDP = {
@@ -26,11 +31,13 @@ EXCLUDED_STATES_GSDP = {
 
 # Widescreen 16:9, high resolution for blog
 FIG_SIZE_16_9 = (12, 6.75)
-DPI_HIGH = 200
+DPI_HIGH = 400
 
-# Bubble legend: only 1B and 10B USD. Size scale: log10(export) from 1e9 to 10e9 -> 50 to 350
-BUBBLE_REF_EXPORTS = [1e9, 10e9]
-BUBBLE_SIZE_MIN, BUBBLE_SIZE_MAX = 50, 350
+# Bubble size: area ∝ annual export USD. s in points² so area ∝ s. s = (export_usd/1e9) * AREA_PER_BN
+# Cap set so largest state (~116 bn) is not clipped; 116*70 = 8120
+AREA_PER_BN = 70   # points² per billion USD
+BUBBLE_SIZE_MIN, BUBBLE_SIZE_MAX = 25, 9000
+BUBBLE_REF_EXPORTS = [10e9]  # legend: single circle for 10 bn USD
 
 
 def _normalize(s: pd.Series) -> pd.Series:
@@ -100,15 +107,14 @@ def compute_state_mpi_export_weighted(
 
 
 def _bubble_sizes_and_legend(export_usd: np.ndarray):
-    """Return sizes (same length as export_usd) and legend (ref_exports, ref_sizes) for 1B and 10B only."""
-    # log10 scale: 1e9 -> BUBBLE_SIZE_MIN, 10e9 -> BUBBLE_SIZE_MAX
-    log_min, log_max = np.log10(1e9), np.log10(10e9)
+    """Return sizes (area ∝ export USD) and legend refs. Matplotlib s = area in points²."""
+    # area ∝ export: s = (export_usd / 1e9) * AREA_PER_BN, clipped
     sizes = np.clip(
-        BUBBLE_SIZE_MIN + (BUBBLE_SIZE_MAX - BUBBLE_SIZE_MIN) * (np.log10(np.maximum(export_usd, 1e6)) - log_min) / (log_max - log_min),
+        (np.asarray(export_usd, dtype=float) / 1e9) * AREA_PER_BN,
         BUBBLE_SIZE_MIN,
         BUBBLE_SIZE_MAX,
     )
-    ref_sizes = [BUBBLE_SIZE_MIN, BUBBLE_SIZE_MAX]
+    ref_sizes = [min((ex / 1e9) * AREA_PER_BN, BUBBLE_SIZE_MAX) for ex in BUBBLE_REF_EXPORTS]
     return sizes, BUBBLE_REF_EXPORTS, ref_sizes
 
 
@@ -132,6 +138,39 @@ def load_state_level(states_path: str = "states_2025_full.csv") -> pd.DataFrame:
 def _short_state_name(state: str) -> str:
     """Shorten state name for labels (e.g. ANDHRA PRADESH -> Andhra Pradesh, TAMIL NADU -> Tamil Nadu)."""
     return state.title()
+
+
+def _add_state_labels(ax, df_plot: pd.DataFrame, x_col: str, y_col: str, scatter_artist=None, adjust_overlap: bool = True):
+    """Annotate each point with state name; use adjustText to avoid overlap if available."""
+    x_vals = df_plot[x_col].values
+    y_vals = df_plot[y_col].values
+    texts = []
+    for i, row in df_plot.iterrows():
+        t = ax.annotate(
+            _short_state_name(row["State"]),
+            (row[x_col], row[y_col]),
+            fontsize=7,
+            alpha=0.85,
+            xytext=(4, 4),
+            textcoords="offset points",
+            ha="left",
+            va="bottom",
+        )
+        texts.append(t)
+    if adjust_overlap and HAS_ADJUST_TEXT and texts:
+        kwargs = dict(
+            ax=ax,
+            x=x_vals,
+            y=y_vals,
+            force_text=(0.6, 1.0),
+            force_pull=(0.01, 0.02),
+            expand=(1.2, 1.5),
+            max_move=(100, 100),
+            arrowprops=dict(arrowstyle="-", color="gray", lw=0.5),
+        )
+        if scatter_artist is not None:
+            kwargs["objects"] = [scatter_artist]
+        adjust_text(texts, **kwargs)
 
 
 def _plot_eci_vs_gsdp(
@@ -161,30 +200,19 @@ def _plot_eci_vs_gsdp(
     sizes, ref_exports, ref_sizes = _bubble_sizes_and_legend(export_usd)
 
     fig, ax = plt.subplots(figsize=FIG_SIZE_16_9)
-    ax.scatter(x, y, s=sizes, alpha=0.6, c="steelblue", edgecolors="navy", linewidths=0.8, zorder=2)
-    ax.plot(x_line, y_line, color="coral", linewidth=2, label="Linear fit", zorder=1)
+    sc = ax.scatter(x, y, s=sizes, alpha=0.6, c="steelblue", edgecolors="navy", linewidths=0.8, zorder=2)
+    ax.plot(x_line, y_line, color="coral", linewidth=2, zorder=1)
     ax.set_xlabel(x_label)
     ax.set_ylabel("GSDP per capita (₹)")
     ax.set_title(title)
     ax.grid(True, alpha=0.3)
 
-    for _, row in df_plot.iterrows():
-        ax.annotate(
-            _short_state_name(row["State"]),
-            (row[x_col], row[y_col]),
-            fontsize=7,
-            alpha=0.85,
-            xytext=(4, 4),
-            textcoords="offset points",
-            ha="left",
-            va="bottom",
-        )
+    _add_state_labels(ax, df_plot, x_col, y_col, scatter_artist=sc)
 
     legend_handles = [
-        plt.scatter([], [], s=sz, c="steelblue", edgecolors="navy", alpha=0.6, label=f"{int(ex/1e9)} billion USD")
+        plt.scatter([], [], s=sz, c="steelblue", edgecolors="navy", alpha=0.6, label=f"{int(ex/1e9)} bn USD")
         for ex, sz in zip(ref_exports, ref_sizes)
     ]
-    legend_handles.append(plt.plot([], [], color="coral", linewidth=2, label="Linear fit")[0])
     ax.legend(handles=legend_handles, loc="lower right", fontsize=9)
 
     textstr = f"{eq_text}\n$R^2$ = {r_sq:.3f}"
@@ -226,30 +254,19 @@ def _plot_eci_vs_log_gsdp(
     sizes, ref_exports, ref_sizes = _bubble_sizes_and_legend(export_usd)
 
     fig, ax = plt.subplots(figsize=FIG_SIZE_16_9)
-    ax.scatter(x, y, s=sizes, alpha=0.6, c="steelblue", edgecolors="navy", linewidths=0.8, zorder=2)
-    ax.plot(x_line, y_line, color="coral", linewidth=2, label="Linear fit", zorder=1)
+    sc = ax.scatter(x, y, s=sizes, alpha=0.6, c="steelblue", edgecolors="navy", linewidths=0.8, zorder=2)
+    ax.plot(x_line, y_line, color="coral", linewidth=2, zorder=1)
     ax.set_xlabel(x_label)
     ax.set_ylabel("log(GSDP per capita, ₹)")
     ax.set_title(title)
     ax.grid(True, alpha=0.3)
 
-    for _, row in df_plot.iterrows():
-        ax.annotate(
-            _short_state_name(row["State"]),
-            (row[x_col], row[y_col]),
-            fontsize=7,
-            alpha=0.85,
-            xytext=(4, 4),
-            textcoords="offset points",
-            ha="left",
-            va="bottom",
-        )
+    _add_state_labels(ax, df_plot, x_col, y_col, scatter_artist=sc)
 
     legend_handles = [
-        plt.scatter([], [], s=sz, c="steelblue", edgecolors="navy", alpha=0.6, label=f"{int(ex/1e9)} billion USD")
+        plt.scatter([], [], s=sz, c="steelblue", edgecolors="navy", alpha=0.6, label=f"{int(ex/1e9)} bn USD")
         for ex, sz in zip(ref_exports, ref_sizes)
     ]
-    legend_handles.append(plt.plot([], [], color="coral", linewidth=2, label="Linear fit")[0])
     ax.legend(handles=legend_handles, loc="lower right", fontsize=9)
 
     textstr = f"{eq_text}\n$R^2$ = {r_sq:.3f}"
@@ -289,30 +306,19 @@ def _plot_eci_vs_mpi_state(
     sizes, ref_exports, ref_sizes = _bubble_sizes_and_legend(export_usd)
 
     fig, ax = plt.subplots(figsize=FIG_SIZE_16_9)
-    ax.scatter(x, y, s=sizes, alpha=0.6, c="steelblue", edgecolors="navy", linewidths=0.8, zorder=2)
-    ax.plot(x_line, y_line, color="coral", linewidth=2, label="Linear fit", zorder=1)
+    sc = ax.scatter(x, y, s=sizes, alpha=0.6, c="steelblue", edgecolors="navy", linewidths=0.8, zorder=2)
+    ax.plot(x_line, y_line, color="coral", linewidth=2, zorder=1)
     ax.set_xlabel(x_label)
     ax.set_ylabel("MPI Headcount Ratio (%)")
     ax.set_title(title)
     ax.grid(True, alpha=0.3)
 
-    for _, row in df_plot.iterrows():
-        ax.annotate(
-            _short_state_name(row["State"]),
-            (row[x_col], row[y_col]),
-            fontsize=7,
-            alpha=0.85,
-            xytext=(4, 4),
-            textcoords="offset points",
-            ha="left",
-            va="bottom",
-        )
+    _add_state_labels(ax, df_plot, x_col, y_col, scatter_artist=sc)
 
     legend_handles = [
-        plt.scatter([], [], s=sz, c="steelblue", edgecolors="navy", alpha=0.6, label=f"{int(ex/1e9)} billion USD")
+        plt.scatter([], [], s=sz, c="steelblue", edgecolors="navy", alpha=0.6, label=f"{int(ex/1e9)} bn USD")
         for ex, sz in zip(ref_exports, ref_sizes)
     ]
-    legend_handles.append(plt.plot([], [], color="coral", linewidth=2, label="Linear fit")[0])
     ax.legend(handles=legend_handles, loc="lower left", fontsize=9)  # downward slope: legend bottom-left
 
     textstr = f"{eq_text}\n$R^2$ = {r_sq:.3f}"
@@ -362,30 +368,19 @@ def _plot_eci_vs_viirs(
     sizes, ref_exports, ref_sizes = _bubble_sizes_and_legend(export_usd)
 
     fig, ax = plt.subplots(figsize=FIG_SIZE_16_9)
-    ax.scatter(x, y, s=sizes, alpha=0.6, c="steelblue", edgecolors="navy", linewidths=0.8, zorder=2)
-    ax.plot(x_line, y_line, color="coral", linewidth=2, label="Linear fit", zorder=1)
+    sc = ax.scatter(x, y, s=sizes, alpha=0.6, c="steelblue", edgecolors="navy", linewidths=0.8, zorder=2)
+    ax.plot(x_line, y_line, color="coral", linewidth=2, zorder=1)
     ax.set_xlabel(x_label)
     ax.set_ylabel(y_label)
     ax.set_title(title)
     ax.grid(True, alpha=0.3)
 
-    for _, row in df_plot.iterrows():
-        ax.annotate(
-            _short_state_name(row["State"]),
-            (row[x_col], row[y_col]),
-            fontsize=7,
-            alpha=0.85,
-            xytext=(4, 4),
-            textcoords="offset points",
-            ha="left",
-            va="bottom",
-        )
+    _add_state_labels(ax, df_plot, x_col, y_col, scatter_artist=sc)
 
     legend_handles = [
-        plt.scatter([], [], s=sz, c="steelblue", edgecolors="navy", alpha=0.6, label=f"{int(ex/1e9)} billion USD")
+        plt.scatter([], [], s=sz, c="steelblue", edgecolors="navy", alpha=0.6, label=f"{int(ex/1e9)} bn USD")
         for ex, sz in zip(ref_exports, ref_sizes)
     ]
-    legend_handles.append(plt.plot([], [], color="coral", linewidth=2, label="Linear fit")[0])
     ax.legend(handles=legend_handles, loc="lower right", fontsize=9)
 
     textstr = f"{eq_text}\n$R^2$ = {r_sq:.3f}"

@@ -8,3 +8,5 @@ requests>=2.31.0
 xlrd>=2.0.1
 # Optional: for reading Stata files (.dta) from SHRUG
 # pyreadstat>=1.1.0
+# Optional: for state plots - prevent state name labels from overlapping
+adjustText>=0.7.3
