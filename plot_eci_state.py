@@ -37,6 +37,7 @@ DPI_HIGH = 400
 # Cap set so largest state (~116 bn) is not clipped; 116*70 = 8120
 AREA_PER_BN = 70   # points² per billion USD
 BUBBLE_SIZE_MIN, BUBBLE_SIZE_MAX = 25, 9000
+BUBBLE_SIZE_SCALE = 0.7   # scale all bubbles and legend circle(s) by this factor
 BUBBLE_REF_EXPORTS = [10e9]  # legend: single circle for 10 bn USD
 
 
@@ -107,14 +108,15 @@ def compute_state_mpi_export_weighted(
 
 
 def _bubble_sizes_and_legend(export_usd: np.ndarray):
-    """Return sizes (area ∝ export USD) and legend refs. Matplotlib s = area in points²."""
-    # area ∝ export: s = (export_usd / 1e9) * AREA_PER_BN, clipped
-    sizes = np.clip(
+    """Return sizes (area ∝ export USD) and legend refs. Matplotlib s = area in points². Scaled by BUBBLE_SIZE_SCALE."""
+    # area ∝ export: s = (export_usd / 1e9) * AREA_PER_BN, clipped, then scaled
+    raw = np.clip(
         (np.asarray(export_usd, dtype=float) / 1e9) * AREA_PER_BN,
         BUBBLE_SIZE_MIN,
         BUBBLE_SIZE_MAX,
     )
-    ref_sizes = [min((ex / 1e9) * AREA_PER_BN, BUBBLE_SIZE_MAX) for ex in BUBBLE_REF_EXPORTS]
+    sizes = raw * BUBBLE_SIZE_SCALE
+    ref_sizes = [min((ex / 1e9) * AREA_PER_BN, BUBBLE_SIZE_MAX) * BUBBLE_SIZE_SCALE for ex in BUBBLE_REF_EXPORTS]
     return sizes, BUBBLE_REF_EXPORTS, ref_sizes
 
 
@@ -149,9 +151,9 @@ def _add_state_labels(ax, df_plot: pd.DataFrame, x_col: str, y_col: str, scatter
         t = ax.annotate(
             _short_state_name(row["State"]),
             (row[x_col], row[y_col]),
-            fontsize=7,
-            alpha=0.85,
-            xytext=(4, 4),
+            fontsize=10,
+            alpha=0.9,
+            xytext=(8, 8),
             textcoords="offset points",
             ha="left",
             va="bottom",
@@ -162,10 +164,11 @@ def _add_state_labels(ax, df_plot: pd.DataFrame, x_col: str, y_col: str, scatter
             ax=ax,
             x=x_vals,
             y=y_vals,
-            force_text=(0.6, 1.0),
-            force_pull=(0.01, 0.02),
-            expand=(1.2, 1.5),
-            max_move=(100, 100),
+            force_text=(1.2, 1.8),
+            force_pull=(0.005, 0.01),
+            force_explode=(0.2, 0.8),
+            expand=(1.6, 2.0),
+            max_move=(200, 200),
             arrowprops=dict(arrowstyle="-", color="gray", lw=0.5),
         )
         if scatter_artist is not None:
@@ -179,8 +182,9 @@ def _plot_eci_vs_gsdp(
     x_label: str,
     out_path: str,
     title: str,
+    color_by: str | None = None,
 ) -> None:
-    """Scatter x (ECI or ECI_std) vs GSDP with linear fit, bubble size = total export USD, state labels, size legend."""
+    """Scatter x (ECI or ECI_std) vs GSDP with linear fit, bubble size = total export USD, state labels, size legend. Optional Spectral color by color_by."""
     y_col = "GSDP_per_capita"
     df_plot = df.dropna(subset=[x_col, y_col, "Total_Export_USD"]).copy()
     df_plot = df_plot[df_plot["Total_Export_USD"] > 0]
@@ -200,17 +204,23 @@ def _plot_eci_vs_gsdp(
     sizes, ref_exports, ref_sizes = _bubble_sizes_and_legend(export_usd)
 
     fig, ax = plt.subplots(figsize=FIG_SIZE_16_9)
-    sc = ax.scatter(x, y, s=sizes, alpha=0.6, c="steelblue", edgecolors="navy", linewidths=0.8, zorder=2)
+    if color_by and color_by in df_plot.columns:
+        c_vals = df_plot[color_by].values
+        sc = ax.scatter(x, y, s=sizes, c=c_vals, cmap="Spectral", alpha=0.78, edgecolors="dimgrey", linewidths=0.5, zorder=2)
+        legend_color = "grey"
+    else:
+        sc = ax.scatter(x, y, s=sizes, alpha=0.6, c="steelblue", edgecolors="navy", linewidths=0.8, zorder=2)
+        legend_color = "steelblue"
     ax.plot(x_line, y_line, color="coral", linewidth=2, zorder=1)
-    ax.set_xlabel(x_label)
-    ax.set_ylabel("GSDP per capita (₹)")
-    ax.set_title(title)
+    ax.set_xlabel(x_label, fontsize=12)
+    ax.set_ylabel("GSDP per capita (₹)", fontsize=12)
+    ax.set_title(title, fontsize=16)
     ax.grid(True, alpha=0.3)
 
     _add_state_labels(ax, df_plot, x_col, y_col, scatter_artist=sc)
 
     legend_handles = [
-        plt.scatter([], [], s=sz, c="steelblue", edgecolors="navy", alpha=0.6, label=f"{int(ex/1e9)} bn USD")
+        plt.scatter([], [], s=sz, c=legend_color, edgecolors="navy" if legend_color == "steelblue" else "dimgrey", alpha=0.6, label=f"{int(ex/1e9)} bn USD")
         for ex, sz in zip(ref_exports, ref_sizes)
     ]
     ax.legend(handles=legend_handles, loc="lower right", fontsize=9)
@@ -232,8 +242,10 @@ def _plot_eci_vs_log_gsdp(
     x_label: str,
     out_path: str,
     title: str,
+    color_by: str | None = None,
 ) -> None:
-    """Scatter x (ECI or ECI_std) vs log(GSDP) with linear fit, bubble size = total export USD, state labels, size legend."""
+    """Scatter x (ECI or ECI_std) vs log(GSDP) with linear fit, bubble size = total export USD, state labels, size legend.
+    If color_by is set (e.g. 'ECI_std'), circles are colored by that variable with a sober colormap and a colorbar is added."""
     df_plot = df.dropna(subset=[x_col, "GSDP_per_capita", "Total_Export_USD"]).copy()
     df_plot = df_plot[df_plot["GSDP_per_capita"] > 0]
     df_plot = df_plot[df_plot["Total_Export_USD"] > 0]
@@ -254,17 +266,24 @@ def _plot_eci_vs_log_gsdp(
     sizes, ref_exports, ref_sizes = _bubble_sizes_and_legend(export_usd)
 
     fig, ax = plt.subplots(figsize=FIG_SIZE_16_9)
-    sc = ax.scatter(x, y, s=sizes, alpha=0.6, c="steelblue", edgecolors="navy", linewidths=0.8, zorder=2)
+    if color_by and color_by in df_plot.columns:
+        c_vals = df_plot[color_by].values
+        sc = ax.scatter(x, y, s=sizes, c=c_vals, cmap="Spectral", alpha=0.78, edgecolors="dimgrey", linewidths=0.5, zorder=2)
+        # No colorbar: colors are qualitative/continuous and self-explanatory here
+        legend_color = "grey"
+    else:
+        sc = ax.scatter(x, y, s=sizes, alpha=0.6, c="steelblue", edgecolors="navy", linewidths=0.8, zorder=2)
+        legend_color = "steelblue"
     ax.plot(x_line, y_line, color="coral", linewidth=2, zorder=1)
-    ax.set_xlabel(x_label)
-    ax.set_ylabel("log(GSDP per capita, ₹)")
-    ax.set_title(title)
+    ax.set_xlabel(x_label, fontsize=12)
+    ax.set_ylabel("log(GSDP per capita, ₹)", fontsize=12)
+    ax.set_title(title, fontsize=16)
     ax.grid(True, alpha=0.3)
 
     _add_state_labels(ax, df_plot, x_col, y_col, scatter_artist=sc)
 
     legend_handles = [
-        plt.scatter([], [], s=sz, c="steelblue", edgecolors="navy", alpha=0.6, label=f"{int(ex/1e9)} bn USD")
+        plt.scatter([], [], s=sz, c=legend_color, edgecolors="navy" if legend_color == "steelblue" else "dimgrey", alpha=0.6, label=f"{int(ex/1e9)} bn USD")
         for ex, sz in zip(ref_exports, ref_sizes)
     ]
     ax.legend(handles=legend_handles, loc="lower right", fontsize=9)
@@ -286,8 +305,9 @@ def _plot_eci_vs_mpi_state(
     x_label: str,
     out_path: str,
     title: str,
+    color_by: str | None = None,
 ) -> None:
-    """Scatter x (ECI or ECI_std) vs state export-weighted MPI; same style as GSDP plots."""
+    """Scatter x (ECI or ECI_std) vs state export-weighted MPI; same style as GSDP plots. Optional Spectral color by color_by."""
     y_col = "MPI_export_weighted"
     df_plot = df.dropna(subset=[x_col, y_col, "Total_Export_USD"]).copy()
     df_plot = df_plot[df_plot["Total_Export_USD"] > 0]
@@ -306,17 +326,23 @@ def _plot_eci_vs_mpi_state(
     sizes, ref_exports, ref_sizes = _bubble_sizes_and_legend(export_usd)
 
     fig, ax = plt.subplots(figsize=FIG_SIZE_16_9)
-    sc = ax.scatter(x, y, s=sizes, alpha=0.6, c="steelblue", edgecolors="navy", linewidths=0.8, zorder=2)
+    if color_by and color_by in df_plot.columns:
+        c_vals = df_plot[color_by].values
+        sc = ax.scatter(x, y, s=sizes, c=c_vals, cmap="Spectral", alpha=0.78, edgecolors="dimgrey", linewidths=0.5, zorder=2)
+        legend_color = "grey"
+    else:
+        sc = ax.scatter(x, y, s=sizes, alpha=0.6, c="steelblue", edgecolors="navy", linewidths=0.8, zorder=2)
+        legend_color = "steelblue"
     ax.plot(x_line, y_line, color="coral", linewidth=2, zorder=1)
-    ax.set_xlabel(x_label)
-    ax.set_ylabel("MPI Headcount Ratio (%)")
-    ax.set_title(title)
+    ax.set_xlabel(x_label, fontsize=12)
+    ax.set_ylabel("MPI Headcount Ratio (%)", fontsize=12)
+    ax.set_title(title, fontsize=16)
     ax.grid(True, alpha=0.3)
 
     _add_state_labels(ax, df_plot, x_col, y_col, scatter_artist=sc)
 
     legend_handles = [
-        plt.scatter([], [], s=sz, c="steelblue", edgecolors="navy", alpha=0.6, label=f"{int(ex/1e9)} bn USD")
+        plt.scatter([], [], s=sz, c=legend_color, edgecolors="navy" if legend_color == "steelblue" else "dimgrey", alpha=0.6, label=f"{int(ex/1e9)} bn USD")
         for ex, sz in zip(ref_exports, ref_sizes)
     ]
     ax.legend(handles=legend_handles, loc="lower left", fontsize=9)  # downward slope: legend bottom-left
@@ -340,8 +366,9 @@ def _plot_eci_vs_viirs(
     title: str,
     eq_label: str,
     filter_viirs_outlier: bool = True,
+    color_by: str | None = None,
 ) -> None:
-    """ECI vs VIIRS (or log VIIRS): linear fit, bubble = total export USD, state labels, 1B/10B legend. Optionally drop VIIRS < -3."""
+    """ECI vs VIIRS (or log VIIRS): linear fit, bubble = total export USD, state labels, 1B/10B legend. Optional Spectral color by color_by."""
     x_col = "ECI"
     x_label = "Economic Complexity Index (ECI)"
     df_plot = df.dropna(subset=[x_col, y_col, "Total_Export_USD"]).copy()
@@ -368,17 +395,23 @@ def _plot_eci_vs_viirs(
     sizes, ref_exports, ref_sizes = _bubble_sizes_and_legend(export_usd)
 
     fig, ax = plt.subplots(figsize=FIG_SIZE_16_9)
-    sc = ax.scatter(x, y, s=sizes, alpha=0.6, c="steelblue", edgecolors="navy", linewidths=0.8, zorder=2)
+    if color_by and color_by in df_plot.columns:
+        c_vals = df_plot[color_by].values
+        sc = ax.scatter(x, y, s=sizes, c=c_vals, cmap="Spectral", alpha=0.78, edgecolors="dimgrey", linewidths=0.5, zorder=2)
+        legend_color = "grey"
+    else:
+        sc = ax.scatter(x, y, s=sizes, alpha=0.6, c="steelblue", edgecolors="navy", linewidths=0.8, zorder=2)
+        legend_color = "steelblue"
     ax.plot(x_line, y_line, color="coral", linewidth=2, zorder=1)
-    ax.set_xlabel(x_label)
-    ax.set_ylabel(y_label)
-    ax.set_title(title)
+    ax.set_xlabel(x_label, fontsize=12)
+    ax.set_ylabel(y_label, fontsize=12)
+    ax.set_title(title, fontsize=16)
     ax.grid(True, alpha=0.3)
 
     _add_state_labels(ax, df_plot, x_col, y_col, scatter_artist=sc)
 
     legend_handles = [
-        plt.scatter([], [], s=sz, c="steelblue", edgecolors="navy", alpha=0.6, label=f"{int(ex/1e9)} bn USD")
+        plt.scatter([], [], s=sz, c=legend_color, edgecolors="navy" if legend_color == "steelblue" else "dimgrey", alpha=0.6, label=f"{int(ex/1e9)} bn USD")
         for ex, sz in zip(ref_exports, ref_sizes)
     ]
     ax.legend(handles=legend_handles, loc="lower right", fontsize=9)
@@ -429,12 +462,14 @@ def main():
             "Economic Complexity Index (ECI)",
             str(base / "state_eci_vs_mpi.png"),
             f"State-level ECI vs {mpi_label}",
+            color_by="ECI",
         )
         _plot_eci_vs_mpi_state(
             df, "ECI_std",
             "ECI (standardized)",
             str(base / "state_eci_std_vs_mpi.png"),
             f"State-level ECI (standardized) vs {mpi_label}",
+            color_by="ECI_std",
         )
         df_removed = df[~df["State"].str.upper().isin(EXCLUDED_STATES_GSDP)].copy()
         _plot_eci_vs_mpi_state(
@@ -442,12 +477,14 @@ def main():
             "Economic Complexity Index (ECI)",
             str(base / "state_eci_vs_mpi_removed.png"),
             f"State-level ECI vs {mpi_label} (outliers removed)",
+            color_by="ECI",
         )
         _plot_eci_vs_mpi_state(
             df_removed, "ECI_std",
             "ECI (standardized)",
             str(base / "state_eci_std_vs_mpi_removed.png"),
             f"State-level ECI (standardized) vs {mpi_label} (outliers removed)",
+            color_by="ECI_std",
         )
     elif not mpi_label:
         print("Skipping state ECI vs MPI plots (no mpi_state_data.csv or district MPI/trade data)")
@@ -458,12 +495,14 @@ def main():
         "Economic Complexity Index (ECI)",
         str(base / "state_eci_vs_gsdp.png"),
         "State-level ECI vs GSDP per capita",
+        color_by="ECI",
     )
     _plot_eci_vs_gsdp(
         df, "ECI_std",
         "ECI (standardized)",
         str(base / "state_eci_std_vs_gsdp.png"),
         "State-level ECI (standardized) vs GSDP per capita",
+        color_by="ECI_std",
     )
     # Same ECI vs GSDP plots with outlier states removed
     df_removed = df[~df["State"].str.upper().isin(EXCLUDED_STATES_GSDP)].copy()
@@ -472,12 +511,22 @@ def main():
         "Economic Complexity Index (ECI)",
         str(base / "state_eci_vs_gsdp_removed.png"),
         "State-level ECI vs GSDP per capita (outliers removed)",
+        color_by="ECI",
     )
     _plot_eci_vs_gsdp(
         df_removed, "ECI_std",
         "ECI (standardized)",
         str(base / "state_eci_std_vs_gsdp_removed.png"),
         "State-level ECI (standardized) vs GSDP per capita (outliers removed)",
+        color_by="ECI_std",
+    )
+    # ECI (standardized) vs log(GSDP per capita), all states (high-res, colored by ECI_std)
+    _plot_eci_vs_log_gsdp(
+        df, "ECI_std",
+        "ECI (standardized)",
+        str(base / "state_eci_std_vs_log_gsdp.png"),
+        "State-level ECI (standardized) vs log(GSDP per capita)",
+        color_by="ECI_std",
     )
     # ECI vs log(GSDP per capita), outliers removed
     _plot_eci_vs_log_gsdp(
@@ -485,12 +534,14 @@ def main():
         "Economic Complexity Index (ECI)",
         str(base / "state_eci_vs_log_gsdp_removed.png"),
         "State-level ECI vs log(GSDP per capita) (outliers removed)",
+        color_by="ECI",
     )
     _plot_eci_vs_log_gsdp(
         df_removed, "ECI_std",
         "ECI (standardized)",
         str(base / "state_eci_std_vs_log_gsdp_removed.png"),
         "State-level ECI (standardized) vs log(GSDP per capita) (outliers removed)",
+        color_by="ECI_std",
     )
     # ECI vs VIIRS (outlier VIIRS < -3 removed; bubbles + state labels; 1B/10B legend)
     _plot_eci_vs_viirs(
@@ -499,6 +550,7 @@ def main():
         title="State-level ECI vs VIIRS Mean Luminosity",
         eq_label="VIIRS",
         filter_viirs_outlier=True,
+        color_by="ECI",
     )
     # ECI vs log VIIRS (same: drop VIIRS < -3, then take log of positive values)
     df_viirs = df.dropna(subset=["ECI", "VIIRS_Mean", "Total_Export_USD"]).copy()
@@ -511,6 +563,7 @@ def main():
         title="State-level ECI vs log(VIIRS Mean Luminosity)",
         eq_label="log(VIIRS)",
         filter_viirs_outlier=False,  # already filtered above
+        color_by="ECI",
     )
 
 
