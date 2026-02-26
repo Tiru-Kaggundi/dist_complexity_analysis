@@ -38,6 +38,8 @@ ENV/
 # Data files (exclude from git - too large)
 data/
 *.csv
+# Exception: small precomputed table needed for the Streamlit app
+!cluster_maps/district_sector_clusters.csv
 *.dta
 *.xlsx
 *.xls
