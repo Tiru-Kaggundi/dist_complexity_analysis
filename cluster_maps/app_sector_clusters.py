@@ -3,7 +3,7 @@ Streamlit app: visualise district-level export clusters by sector on an India ma
 
 Dependencies:
 - pandas, geopandas
-- folium, streamlit, streamlit-folium
+- folium, streamlit
 
 Data requirements:
 - Enriched trade data has already been processed into
@@ -13,12 +13,18 @@ Data requirements:
 """
 
 from pathlib import Path
+import sys
 
 import geopandas as gpd
 import pandas as pd
 import streamlit as st
 from folium import Choropleth, GeoJson, GeoJsonTooltip, LayerControl, Map
 from streamlit.components.v1 import html
+
+# Ensure project root is on sys.path so `cluster_maps` can be imported
+ROOT_DIR = Path(__file__).resolve().parent.parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
 
 from cluster_maps.cluster_config import (
     DISTRICT_SECTOR_CLUSTERS,
