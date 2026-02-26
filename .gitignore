@@ -47,6 +47,12 @@ data/
 *.shx
 *.dbf
 *.prj
+# Exceptions: shapefile components needed for the Streamlit map app
+!data/geo/india_districts_2011.shp
+!data/geo/india_districts_2011.shx
+!data/geo/india_districts_2011.dbf
+!data/geo/india_districts_2011.prj
+!data/geo/india_districts_2011.cpg
 
 # Output files
 *.png
