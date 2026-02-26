@@ -172,6 +172,29 @@ python etl_pipeline.py
 
 This will run the pipeline with default configuration and export results to `india_district_macro_merged.csv`.
 
+## Data Sources and Citations
+
+- **SHRUG (district boundaries and related variables)**  
+  If you use SHRUG-based data or the district boundaries in publications, please cite:
+
+  > Asher, S., T. Lunt, R. Matsuura, and P. Novosad (2021).  
+  > *Development research at high geographic resolution: an analysis of night-lights, firms, and poverty in India using the SHRUG open data platform.*  
+  > World Bank Economic Review.
+
+  BibTeX:
+
+  ```bibtex
+  @article{almn2021,
+    title={Development research at high geographic resolution: an analysis of night-lights, firms, and poverty in India using the shrug open data platform},
+    author={Asher, Sam and Lunt, Tobias and Matsuura, Ryu and Novosad, Paul},
+    journal={The World Bank Economic Review},
+    volume={35},
+    number={4},
+    year={2021},
+    publisher={Oxford University Press}
+  }
+  ```
+
 ## Configuration Options
 
 Edit `config.py` or pass custom parameters to modify pipeline behavior:

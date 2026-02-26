@@ -305,6 +305,14 @@ def main() -> None:
     ]
     st.dataframe(top_display)
 
+    # Compact SHRUG citation in the footer
+    st.caption(
+        "District boundaries and SHRUG-based variables: Asher, S., T. Lunt, R. Matsuura, "
+        "and P. Novosad (2021), *Development research at high geographic resolution: an "
+        "analysis of night-lights, firms, and poverty in India using the SHRUG open data "
+        "platform*, World Bank Economic Review."
+    )
+
 
 if __name__ == "__main__":
     main()
