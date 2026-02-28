@@ -46,7 +46,7 @@ SECTORS = {
     "auto": {
         "label": "Automotive (HS 87)",
         "hs2_prefixes": ["87"],
-        "cmap": "Reds",
+        "cmap": "RdYlBu_r",  # Blue (low) to red (high), vibrant
     },
     "leather": {
         "label": "Leather & Leather Goods (HS 41–43)",
