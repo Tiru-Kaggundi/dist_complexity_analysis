@@ -86,3 +86,7 @@ apikey.py
 
 # data
 dgcis_stateoforigin1771519863052/
+# Exception: raw DGCI&S state x HS6 export files for FY26 (AM26), kept as source data
+!raw_data/
+!raw_data/dgcis_state_hs6_am26/
+!raw_data/dgcis_state_hs6_am26/*.xls
